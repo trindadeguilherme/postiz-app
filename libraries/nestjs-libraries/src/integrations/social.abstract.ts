@@ -256,6 +256,10 @@ export abstract class SocialAbstract {
       );
     }
 
+    console.error(
+      `[SocialAbstract] Unmapped error response for ${identifier} - status ${request.status}:`,
+      json
+    );
     throw new BadBody(
       identifier,
       json,

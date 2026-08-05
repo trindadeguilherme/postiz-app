@@ -622,7 +622,7 @@ export class InstagramProvider
               ? `video_url=${m.path}&media_type=STORIES`
               : `video_url=${m.path}&media_type=REELS&thumb_offset=${
                   m?.thumbnailTimestamp || 0
-                }`
+                }${m?.thumbnail ? `&cover_url=${m.thumbnail}` : ''}`
             : isStory
             ? `video_url=${m.path}&media_type=STORIES`
             : `video_url=${m.path}&media_type=VIDEO&thumb_offset=${
@@ -641,8 +641,11 @@ export class InstagramProvider
             )}`
           : ``;
 
+        // collaborators are only allowed on single-media posts, NOT on carousel children
+        // For carousels, collaborators are added to the container creation call instead
+        const isCarouselItem = (firstPost?.media?.length || 0) > 1 && !isStory;
         const collaborators =
-          firstPost?.settings?.collaborators?.length && !isStory
+          firstPost?.settings?.collaborators?.length && !isStory && !isCarouselItem
             ? `&collaborators=${JSON.stringify(
                 firstPost?.settings?.collaborators.map((p) => p.label)
               )}`
@@ -769,13 +772,20 @@ export class InstagramProvider
         },
       ];
     } else {
+      // Add collaborators to the carousel container (where IG's Graph API accepts them)
+      const carouselCollaborators =
+        firstPost?.settings?.collaborators?.length && !isStory
+          ? `&collaborators=${JSON.stringify(
+              firstPost?.settings?.collaborators.map((p: { label: string }) => p.label)
+            )}`
+          : ``;
       const { id: containerId, ...all3 } = await (
         await this.fetch(
           `https://${type}/v20.0/${id}/media?caption=${encodeURIComponent(
             firstPost?.message
           )}&media_type=CAROUSEL&children=${encodeURIComponent(
             medias.join(',')
-          )}&access_token=${accessToken}`,
+          )}${carouselCollaborators}&access_token=${accessToken}`,
           {
             method: 'POST',
           }
