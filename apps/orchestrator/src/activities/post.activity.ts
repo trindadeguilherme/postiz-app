@@ -204,6 +204,22 @@ export class PostActivity {
     );
   }
 
+  private isMetaOAuth190(error: unknown): boolean {
+    const seen = new WeakSet<object>();
+    const stringify = (value: unknown): string => {
+      if (value === null || value === undefined) return '';
+      if (typeof value === 'string') return value;
+      if (typeof value !== 'object') return String(value);
+      if (seen.has(value as object)) return '';
+      seen.add(value as object);
+      return Object.entries(value as Record<string, unknown>)
+        .map(([key, nested]) => key + ':' + stringify(nested))
+        .join(' ');
+    };
+    const text = String(error) + ' ' + stringify(error);
+    return /\b190\b/.test(text) && /(oauth|access token|invalid|cannot parse)/i.test(text);
+  }
+
   @ActivityMethod()
   async postSocial(integration: Integration, posts: Post[]) {
     if (process.env.STRIPE_SECRET_KEY) {
@@ -225,7 +241,9 @@ export class PostActivity {
       posts
     );
 
-    const postNow = await getIntegration.post(
+    let postNow;
+    try {
+      postNow = await getIntegration.post(
       integration.internalId,
       integration.token,
       await Promise.all(
@@ -248,7 +266,16 @@ export class PostActivity {
         }))
       ),
       integration
-    );
+      );
+    } catch (error) {
+      if (this.isMetaOAuth190(error)) {
+        await this._integrationService.refreshNeeded(
+          integration.organizationId,
+          integration.id
+        );
+      }
+      throw error;
+    }
 
     await this._temporalService.client
       .getRawClient()

@@ -401,11 +401,11 @@ export class InstagramProvider
       };
     }
 
-    if (body.indexOf('190,') > -1) {
+    if (body.indexOf('190,') > -1 || body.indexOf('Invalid OAuth access token') > -1 || body.indexOf('Cannot parse access token') > -1) {
       return {
         type: 'bad-body' as const,
         value:
-          'The account is missing some permissions to perform this action, please re-add the account and allow all permissions',
+          'Meta rejected the Instagram access token (OAuth 190). Reconnect the account in Postiz before trying again.',
       };
     }
 
