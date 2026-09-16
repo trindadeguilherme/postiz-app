@@ -73,11 +73,30 @@ export class RefreshIntegrationService {
     socialProvider: SocialProvider,
     cause = ''
   ): Promise<AuthTokenDetails | false> {
+    let refreshError: unknown;
     const refresh: false | AuthTokenDetails = await socialProvider
-      .refreshToken(integration.refreshToken)
-      .catch((err) => false);
+      .refreshToken(integration.refreshToken, {
+        integrationId: integration.internalId,
+        rootInternalId: integration.rootInternalId,
+        providerIdentifier: integration.providerIdentifier,
+      })
+      .catch((error) => {
+        refreshError = error;
+        return false;
+      });
 
     if (!refresh || !refresh.accessToken) {
+      const refreshCause = this.describeRefreshError(refreshError);
+      const notificationCause = [cause, refreshCause]
+        .filter(Boolean)
+        .join(' - ');
+
+      console.error('[RefreshIntegrationService] Token refresh failed', {
+        integrationId: integration.id,
+        provider: integration.providerIdentifier,
+        cause: notificationCause || 'unknown refresh error',
+      });
+
       await this._integrationService.refreshNeeded(
         integration.organizationId,
         integration.id
@@ -86,15 +105,9 @@ export class RefreshIntegrationService {
       await this._integrationService.informAboutRefreshError(
         integration.organizationId,
         integration,
-        cause
-      );
-
-      await this._integrationService.disconnectChannel(
-        integration.organizationId,
-        integration
-      );
-
-      return false;
+        notificationCause,
+    );
+        return false;
     }
 
     if (
@@ -115,4 +128,29 @@ export class RefreshIntegrationService {
       ...reConnect,
     };
   }
+  private describeRefreshError(error: unknown): string {
+    if (!error) {
+      return '';
+    }
+
+    const candidate = error as any;
+    const body = candidate?.response?.data ?? candidate?.response?.body ?? candidate?.body ?? candidate;
+    const details = body?.error ?? body;
+    const message =
+      typeof details?.message === 'string'
+        ? details.message
+        : typeof candidate?.message === 'string'
+          ? candidate.message
+          : '';
+
+    if (!message) {
+      return '';
+    }
+
+    const code = details?.code;
+    const subcode = details?.error_subcode;
+    const codeText = code !== undefined ? ' (code ' + code + (subcode !== undefined ? '/' + subcode : '') + ')' : '';
+    return 'Meta: ' + message + codeText;
+  }
+
 }

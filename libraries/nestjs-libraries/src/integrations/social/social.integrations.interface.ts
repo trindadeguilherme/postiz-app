@@ -14,7 +14,14 @@ export interface IAuthenticator {
     },
     clientInformation?: ClientInformation
   ): Promise<AuthTokenDetails | string>;
-  refreshToken(refreshToken: string): Promise<AuthTokenDetails>;
+  refreshToken(
+    refreshToken: string,
+    context?: {
+      integrationId?: string;
+      rootInternalId?: string | null;
+      providerIdentifier?: string;
+    },
+  ): Promise<AuthTokenDetails>;
   reConnect?(
     id: string,
     requiredId: string,

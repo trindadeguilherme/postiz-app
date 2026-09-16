@@ -32,12 +32,17 @@ export async function refreshTokenWorkflow({
     const today = new Date();
     const endDate = new Date(integration.tokenExpiration);
 
-    const minMax = Math.max(0, endDate.getTime() - today.getTime());
-    if (!minMax) {
-      return false;
-    }
+    // Refresh long-lived Meta tokens before they expire so there is time to
+    // notify the owner and reconnect manually if Meta revokes the grant.
+    const TOKEN_REFRESH_LEAD_MS = 7 * 24 * 60 * 60 * 1000;
+    const minMax = Math.max(
+      0,
+      endDate.getTime() - today.getTime() - TOKEN_REFRESH_LEAD_MS,
+    );
 
-    await sleep(minMax as number);
+    if (minMax > 0) {
+      await sleep(minMax);
+    }
 
     // while we were sleeping, the integration might have been deleted
     integration = await getIntegrationsById(integrationId, organizationId);

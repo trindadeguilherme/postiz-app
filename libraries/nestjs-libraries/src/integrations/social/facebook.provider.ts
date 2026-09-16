@@ -28,6 +28,7 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   identifier = 'facebook';
   name = 'Facebook Page';
   isBetweenSteps = true;
+  refreshCron = true;
   scopes = [
     'pages_show_list',
     'business_management',
@@ -221,15 +222,63 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     return undefined;
   }
 
-  async refreshToken(refresh_token: string): Promise<AuthTokenDetails> {
+  async refreshToken(
+    refresh_token: string,
+    context?: { integrationId?: string },
+  ): Promise<AuthTokenDetails> {
+    if (!refresh_token) {
+      throw new Error('Meta não forneceu um token para renovação.');
+    }
+
+    const appId = process.env.FACEBOOK_APP_ID;
+    const appSecret = process.env.FACEBOOK_APP_SECRET;
+    if (!appId || !appSecret) {
+      throw new Error('As credenciais do app Meta não estão configuradas.');
+    }
+
+    const response = await fetch(
+      'https://graph.facebook.com/v20.0/oauth/access_token' +
+        '?grant_type=fb_exchange_token' +
+        '&client_id=' + encodeURIComponent(appId) +
+        '&client_secret=' + encodeURIComponent(appSecret) +
+        '&fb_exchange_token=' + encodeURIComponent(refresh_token),
+    );
+    const payload = await response.json();
+    if (!response.ok || !payload?.access_token) {
+      const error = payload?.error;
+      throw new Error(
+        'Meta ' + (error?.code ? '(' + error.code + ') ' : '') +
+          (error?.message ?? 'não aceitou a renovação do token'),
+      );
+    }
+
+    const userToken = payload.access_token as string;
+    const page = context?.integrationId
+      ? await this.fetchPageInformation(userToken, {
+          page: context.integrationId,
+        })
+      : undefined;
+    if (context?.integrationId && !page?.access_token) {
+      throw new Error('Meta renovou o token, mas não devolveu o token da página.');
+    }
+
+    const profile = page ??
+      await (await fetch(
+        'https://graph.facebook.com/v20.0/me?fields=id,name,picture&access_token=' +
+          encodeURIComponent(userToken),
+      )).json();
+    if (!profile?.id) {
+      throw new Error('Meta renovou o token, mas não devolveu os dados do canal.');
+    }
+
     return {
-      refreshToken: '',
-      expiresIn: 0,
-      accessToken: '',
-      id: '',
-      name: '',
-      picture: '',
-      username: '',
+      id: profile.id,
+      name: profile.name ?? '',
+      accessToken: page?.access_token ?? userToken,
+      refreshToken: userToken,
+      expiresIn: Number(payload.expires_in ?? 0),
+      picture: page?.picture ?? profile.picture?.data?.url ?? '',
+      username: profile.username ?? '',
     };
   }
 

@@ -28,6 +28,7 @@ export class InstagramProvider
   identifier = 'instagram';
   name = 'Instagram\n(Facebook Business)';
   isBetweenSteps = true;
+  refreshCron = true;
   toolTip = 'Instagram must be business and connected to a Facebook page';
   scopes = [
     'instagram_basic',
@@ -83,15 +84,96 @@ export class InstagramProvider
     return true;
   }
 
-  async refreshToken(refresh_token: string): Promise<AuthTokenDetails> {
+  async refreshToken(
+    refresh_token: string,
+    context?: { integrationId?: string; rootInternalId?: string | null },
+  ): Promise<AuthTokenDetails> {
+    if (!refresh_token) {
+      throw new Error('Meta não forneceu um token para renovação.');
+    }
+
+    const appId = process.env.FACEBOOK_APP_ID;
+    const appSecret = process.env.FACEBOOK_APP_SECRET;
+    if (!appId || !appSecret) {
+      throw new Error('As credenciais do app Meta não estão configuradas.');
+    }
+
+    const response = await fetch(
+      'https://graph.facebook.com/v20.0/oauth/access_token' +
+        '?grant_type=fb_exchange_token' +
+        '&client_id=' + encodeURIComponent(appId) +
+        '&client_secret=' + encodeURIComponent(appSecret) +
+        '&fb_exchange_token=' + encodeURIComponent(refresh_token),
+    );
+    const payload = await response.json();
+    if (!response.ok || !payload?.access_token) {
+      const error = payload?.error;
+      throw new Error(
+        'Meta ' + (error?.code ? '(' + error.code + ') ' : '') +
+          (error?.message ?? 'não aceitou a renovação do token'),
+      );
+    }
+
+    const userToken = payload.access_token as string;
+    const instagramId = context?.integrationId;
+    const pageId = context?.rootInternalId;
+    if (!instagramId || !pageId) {
+      throw new Error('Meta exige os identificadores da página e do Instagram para renovar este canal.');
+    }
+
+    const accountsResponse = await fetch(
+      'https://graph.facebook.com/v20.0/me/accounts?fields=id,access_token,instagram_business_account&limit=100&access_token=' +
+        encodeURIComponent(userToken),
+    );
+    const accountsPayload = await accountsResponse.json();
+    let page = (accountsPayload?.data ?? []).find(
+      (item: any) =>
+        String(item.id) === String(pageId) ||
+        String(item.instagram_business_account?.id) === String(instagramId),
+    );
+
+    if (!page?.access_token) {
+      const directResponse = await fetch(
+        'https://graph.facebook.com/v20.0/' +
+          encodeURIComponent(pageId) +
+          '?fields=id,access_token&access_token=' +
+          encodeURIComponent(userToken),
+      );
+      page = await directResponse.json();
+    }
+
+    if (!page?.access_token) {
+      const error = accountsPayload?.error;
+      throw new Error(
+        ('Meta não devolveu o token da página ' +
+          (error?.code ? '(' + error.code + ') ' : '') +
+          (error?.message ?? '')).trim(),
+      );
+    }
+
+    const profileResponse = await fetch(
+      'https://graph.facebook.com/v20.0/' +
+        encodeURIComponent(instagramId) +
+        '?fields=id,name,username,profile_picture_url&access_token=' +
+        encodeURIComponent(page.access_token),
+    );
+    const profile = await profileResponse.json();
+    if (!profileResponse.ok || profile?.error || !profile?.id) {
+      const error = profile?.error;
+      throw new Error(
+        'Meta ' + (error?.code ? '(' + error.code + ') ' : '') +
+          (error?.message ?? 'não devolveu os dados do Instagram'),
+      );
+    }
+
     return {
-      refreshToken: '',
-      expiresIn: 0,
-      accessToken: '',
-      id: '',
-      name: '',
-      picture: '',
-      username: '',
+      id: profile.id,
+      name: profile.name ?? '',
+      accessToken: page.access_token + '__' + userToken,
+      refreshToken: userToken,
+      expiresIn: Number(payload.expires_in ?? 0),
+      picture: profile.profile_picture_url ?? '',
+      username: profile.username ?? '',
     };
   }
 
