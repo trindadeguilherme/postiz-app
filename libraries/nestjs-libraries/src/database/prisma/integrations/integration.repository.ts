@@ -291,7 +291,7 @@ export class IntegrationRepository {
         internalId,
         organizationId: org,
         deletedAt: null,
-        refreshNeeded: false,
+        ...(refresh ? { refreshNeeded: false } : {}),
       },
     });
 
